@@ -13,12 +13,12 @@
 
 #define MAXLINE 1024
 
-// Obsługa sygnału SIGCHLD - automatyczne oczyszczanie procesów zombie
+// obsługa sygnału SIGCHLD - automatyczne oczyszczanie procesów zombie
 void obsluga_sigchld(int signo) {
     while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-// Obsługa sygnału SIGPIPE - łapiemy moment, gdy klient chamsko zerwie połączenie 
+// obsługa sygnału SIGPIPE - łapiemy moment, gdy klient chamsko zerwie połączenie 
 void obsluga_sigpipe(int signo) {
     syslog(LOG_LOCAL7 | LOG_WARNING, "Wykryto nagłe zerwanie potoku (SIGPIPE) przez klienta!");  
 }
@@ -36,29 +36,25 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    // Otwarcie połączenia z demonem syslog (identyfikator: "SerwerEcho") 
+    // otwarcie połączenia z demonem syslog
     openlog("SerwerEcho", LOG_PID | LOG_CONS, LOG_LOCAL7); 
 
-    // 1. Tworzenie gniazda TCP 
     listenfd = socket(AF_INET, SOCK_STREAM, 0); 
     
-    // Zabezpieczenie przed stanem TIME_WAIT (opcja SO_REUSEADDR z Lab 2) 
+    // zabezpieczenie przed stanem TIME_WAIT dzieki SO_REUSEADDR
     int optval = 1;
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)); 
 
-    // 2. Konfiguracja adresu struktury serwera 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET; 
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
     servaddr.sin_port = htons(atoi(argv[1])); 
 
-    // 3. Powiązanie gniazda z adresem 
     bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr)); 
 
-    // 4. Uruchomienie nasłuchiwania 
     listen(listenfd, 5); 
 
-    // Rejestracja funkcji obsługi sygnałów systemowych 
+    // rejestracja funkcji obsługi sygnałów systemowych 
     signal(SIGCHLD, obsluga_sigchld); 
     signal(SIGPIPE, obsluga_sigpipe);
 
@@ -66,32 +62,29 @@ int main(int argc, char **argv) {
 
     for ( ; ; ) {
         clilen = sizeof(cliaddr);
-        // Akceptowanie nowego połączenia 
         connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen); 
 
         if (connfd < 0) {
-            if (errno == EINTR) continue; // Obsługa przerwania przez sygnał systemowy
+            if (errno == EINTR) continue; // obsługa przerwania przez sygnał systemowy
             else { perror("Błąd funkcji accept"); exit(1); }
         }
 
-        // Logowanie nowego klienta do sysloga wraz z jego IP 
         syslog(LOG_LOCAL7 | LOG_NOTICE, "Nowe połączenie od: %s", inet_ntoa(cliaddr.sin_addr));
 
-        // Tworzenie procesu potomnego do obsługi tego konkretnego klienta 
+        // tworzenie procesu potomnego do obsługi tego konkretnego klienta 
         if ( (childpid = fork()) == 0) { 
-            close(listenfd); // Proces potomny zamyka gniazdo nasłuchujące
+            close(listenfd); // proces potomny zamyka gniazdo nasłuchujące
 
-            // Pętla odbierająca dane od klienta i odsyłająca je z powrotem (Echo) 
             while ( (n = read(connfd, buf, MAXLINE)) > 0) { 
                 buf[n] = '\0';
                 syslog(LOG_LOCAL7 | LOG_DEBUG, "Odebrano wiadomość: %s", buf);
-                write(connfd, buf, n); // Odesłanie echa 
+                write(connfd, buf, n);
             }
 
             syslog(LOG_LOCAL7 | LOG_NOTICE, "Klient rozłączył się prawidłowo.");
             close(connfd); 
-            exit(0); // Poprawne zakończenie procesu potomnego 
+            exit(0); // poprawne zakończenie procesu potomnego 
         }
-        close(connfd); // Proces macierzysty zamyka gniazdo połączone
+        close(connfd); // proces macierzysty zamyka gniazdo połączone
     }
 }
